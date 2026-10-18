@@ -63,10 +63,74 @@ class SettingsPage extends StatelessWidget {
               ),
               const SectionTitle('查寝人员'),
               const _InspectorSetting(),
+              const SectionTitle('关于'),
+              GroupCard(
+                children: <Widget>[
+                  _AboutRow(
+                    title: '开放源代码许可',
+                    subtitle: '查寝助手（GPLv3）及所使用的开源软件',
+                    icon: Icons.description_outlined,
+                    onTap: () {
+                      showLicensePage(
+                        context: context,
+                        applicationName: '查寝助手',
+                        applicationVersion: '1.0.0',
+                        applicationLegalese: '基于 GNU GPL v3.0 开源',
+                      );
+                    },
+                  ),
+                ],
+              ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// 「关于」分组中的跳转行
+class _AboutRow extends StatelessWidget {
+  const _AboutRow({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final MiuixColors colors = MiuixTheme.of(context).colors;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  MiuixText(title, fontSize: 16),
+                  const SizedBox(height: 2),
+                  MiuixText(
+                    subtitle,
+                    fontSize: 12,
+                    color: colors.onBackgroundVariant,
+                  ),
+                ],
+              ),
+            ),
+            Icon(icon, size: 22, color: colors.onBackgroundVariant),
+          ],
+        ),
+      ),
     );
   }
 }
