@@ -1,6 +1,8 @@
 // 查寝 App 入口：miuix 主题 + 全局状态注入
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_miuix/miuix.dart';
 
@@ -11,8 +13,18 @@ import 'widgets/app_toast.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _registerAppLicense();
   final StorageService storage = await StorageService.create();
   runApp(DormInspectionApp(storage: storage));
+}
+
+/// 将应用自身的 GPLv3 协议文本注册进系统的许可注册表，
+/// 使设置页「开放源代码许可」页面既能看到三方依赖许可，也能看到本项目协议。
+void _registerAppLicense() {
+  LicenseRegistry.addLicense(() async* {
+    final String license = await rootBundle.loadString('LICENSE');
+    yield LicenseEntryWithLineBreaks(<String>['查寝助手'], license);
+  });
 }
 
 /// 全局状态容器：任意页面通过 [AppScope.of] 获取存储 / Excel 服务与 Snackbar
