@@ -1,5 +1,5 @@
 name: dorm_inspection
-description: "A new Flutter project."
+description: "查寝助手：高校查寝名单管理、晚归登记与卫生评分工具（Flutter / Android）。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,9 +31,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   flutter_miuix: ^1.3.0
   # 中文本地化（日期选择器等 Material 组件文案）
   flutter_localizations:
@@ -72,6 +69,8 @@ flutter:
   assets:
     # 学院下发的卫生检查评分表 Word 模板（导出时原样填充，不改格式）
     - assets/hygiene_template.docx
+    # 应用自身的 GPLv3 协议文本（设置页「开放源代码许可」中展示）
+    - LICENSE
 
   # To add assets to your application, add an assets section, like this:
   # assets:
