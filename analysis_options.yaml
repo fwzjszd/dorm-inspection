@@ -17,6 +17,7 @@ analyzer:
     - windows/**
     # Flutter SDK 与 PUB_CACHE 放在工程目录内，需排除，避免分析第三方包源码
     - sdk/**
+    - ios/**
 
 linter:
   # The lint rules applied to this project can be customized in the

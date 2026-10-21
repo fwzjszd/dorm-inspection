@@ -179,7 +179,19 @@ class HygieneGrade {
   static const String pass = '合格';
   static const String fail = '不合格';
 
+  /// 无人宿舍：不是评定等级，而是备注口径（评分表中该寝室无人，
+  /// 只填寝室号并在备注标注，等级/得分/分项一律留空）。
+  static const String unoccupied = '无人宿舍';
+
   static const List<String> values = <String>[excellent, good, pass, fail];
+
+  /// 多文档卫生汇总的默认口径：只保留优秀、不合格与无人宿舍
+  /// （良好/合格不进汇总表，见学院汇总样例）。
+  static const Set<String> summaryDefaults = <String>{
+    excellent,
+    fail,
+    unoccupied,
+  };
 
   /// 按总分给出建议等级（阈值据填写示例：74/79/84/89 均为良好）
   static String suggest(double score) {
@@ -226,6 +238,13 @@ class HygieneRow {
   /// 实际导出的等级：手填优先，否则按总分判定
   String get effectiveGrade =>
       grade.trim().isNotEmpty ? grade.trim() : HygieneGrade.suggest(total);
+
+  /// 是否无人宿舍：备注含「无人」即按无人宿舍处理
+  /// （评分表中该寝室只填寝室号，等级/得分/分项全部留空）。
+  bool get isUnoccupied => remark.contains('无人');
+
+  /// 导出到「评定等级」列的文字：无人宿舍留空
+  String get exportGrade => isUnoccupied ? '' : effectiveGrade;
 
   factory HygieneRow.fromJson(Map<String, dynamic> json) {
     final Map<String, double> scores = <String, double>{};

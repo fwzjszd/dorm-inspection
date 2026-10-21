@@ -1,0 +1,168 @@
+# iOS 云端构建工作流（GitHub 提供的 macOS 构建机，无需本地 Mac）
+#
+# 使用方式：
+# 1. 把项目推送到 GitHub 仓库；
+# 2. 在仓库 Settings → Secrets and variables → Actions 配置密钥（只需配一次）：
+#      IOS_TEAM_ID                 —— Apple Developer Team ID（10 位，如 A1B2C3D4E5）
+#      BUILD_CERTIFICATE_BASE64   —— Apple Distribution 证书 .p12 的 Base64
+#      P12_PASSWORD                —— 导出 .p12 时设置的密码
+#      PROVISIONING_PROFILE_BASE64 —— 描述文件 .mobileprovision 的 Base64
+#      以下三项仅 testflight 方式需要（App Store Connect → 用户和访问 → 密钥）：
+#      APP_STORE_CONNECT_KEY_ID
+#      APP_STORE_CONNECT_ISSUER_ID
+#      APP_STORE_CONNECT_API_KEY   —— AuthKey_XXXXXXXXXX.p8 文件全文
+#
+#    PowerShell 生成 Base64：
+#      [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\path\cert.p12'))
+#
+#    注意：在 Apple Developer 后台创建描述文件时，Bundle ID 必须是
+#    com.dorminspection.dormInspection（与 ios/Runner.xcodeproj 一致）。
+#
+# 3. 在 Actions 页面手动触发（Run workflow），选择分发方式：
+#      adhoc      Ad Hoc 签名，产出可直接安装给已登记设备的 ipa（默认）
+#      testflight 签名并上传 TestFlight
+#      none       仅编译验证，产出未签名 ipa（不需要任何密钥）
+#
+# 构建完成后在本次运行页面底部的 Artifacts 下载 ipa。
+
+name: iOS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      distribution:
+        description: 分发方式
+        required: true
+        default: adhoc
+        type: choice
+        options:
+          - adhoc
+          - testflight
+          - none
+
+env:
+  FLUTTER_VERSION: '3.47.7'
+
+jobs:
+  build:
+    name: 构建并分发 iOS
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 静态检查与测试
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: 注入构建时间
+        id: buildtime
+        run: |
+          BUILD_TIME="$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S 北京时间')"
+          echo "BUILD_TIME=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+
+      - name: 归档（不签名）
+        run: |
+          flutter build ipa \
+            --release \
+            --no-codesign \
+            --dart-define=BUILD_TIME="${{ steps.buildtime.outputs.BUILD_TIME }}"
+
+      - name: 安装签名证书
+        if: inputs.distribution != 'none'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
+
+      - name: 安装描述文件并读取名称
+        if: inputs.distribution != 'none'
+        id: profile
+        run: |
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          TMP_PROFILE=/tmp/DormInspection.mobileprovision
+          echo "${{ secrets.PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > "$TMP_PROFILE"
+          security cms -D -i "$TMP_PROFILE" > /tmp/profile.plist
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /tmp/profile.plist)
+          NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/profile.plist)
+          cp "$TMP_PROFILE" "$PROFILE_DIR/$UUID.mobileprovision"
+          echo "uuid=$UUID" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: 生成 ExportOptions.plist
+        if: inputs.distribution != 'none'
+        run: |
+          if [ "${{ inputs.distribution }}" = "testflight" ]; then
+            UPLOAD_SYMBOLS=true
+          else
+            UPLOAD_SYMBOLS=false
+          fi
+          PROFILE_NAME='${{ steps.profile.outputs.name }}'
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${{ inputs.distribution }}</string>
+            <key>teamID</key>
+            <string>${{ secrets.IOS_TEAM_ID }}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.dorminspection.dormInspection</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <$UPLOAD_SYMBOLS/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: 导出签名 ipa
+        if: inputs.distribution != 'none'
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/ios/archive/Runner.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist ios/ExportOptions.plist
+
+      - name: 打包未签名 ipa（none 模式）
+        if: inputs.distribution == 'none'
+        run: |
+          mkdir -p build/ios/ipa build/ios/unsigned/Payload
+          cp -R build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app \
+            build/ios/unsigned/Payload/
+          (cd build/ios/unsigned && zip -qr ../ipa/Runner-unsigned.ipa Payload)
+
+      - name: 上传 TestFlight
+        if: inputs.distribution == 'testflight'
+        uses: apple-actions/upload-testflight@v2
+        with:
+          app-path: build/ios/ipa/Runner.ipa
+          issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+
+      - name: 归档 ipa 供下载
+        uses: actions/upload-artifact@v4
+        with:
+          name: dorm-inspection-ios-${{ inputs.distribution }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 30

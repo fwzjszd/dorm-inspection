@@ -33,6 +33,7 @@ class AutocompleteField extends StatefulWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final bool enabled;
+
   final int? minLines;
   final int? maxLines;
 
@@ -156,9 +157,11 @@ class _AutocompleteFieldState extends State<AutocompleteField>
         ),
         CompositedTransformFollower(
           link: _layerLink,
+          // follower 已对齐目标底部，垂直方向只需 6px 间隙；
+          // 不能再加 size.height，否则候选框会整体下移一个输入框高度。
           targetAnchor: Alignment.bottomLeft,
           followerAnchor: Alignment.topLeft,
-          offset: Offset(0, size.height + 6),
+          offset: const Offset(0, 6),
           // 不要在 follower 外包 Align：Stack 下发的是 loose 约束，
           // Align 会撑满全屏导致候选列表相对屏幕左上角定位而非输入框下方。
           child: Material(

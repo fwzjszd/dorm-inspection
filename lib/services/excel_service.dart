@@ -42,7 +42,7 @@ const List<String> _fallbackOrder = <String>[
 /// 解析 Excel 字节为人员列表。
 /// 顶层函数：交由 [compute] 在后台 isolate 执行，避免大文件卡住界面。
 List<Person> parsePersonsFromBytes(List<int> bytes) {
-  final Excel excel = Excel.decodeBytes(ExcelService._sanitizeXlsx(bytes));
+  final Excel excel = Excel.decodeBytes(ExcelService.sanitizeXlsx(bytes));
   final Sheet? sheet = excel.tables.isNotEmpty
       ? excel.tables.values.first
       : null;
@@ -125,7 +125,7 @@ class ExcelService {
   /// 2. styles.xml 的 `numFmts` 中出现内建 numFmtId（小于 164，如 0=General），
   ///    解析器认为自定义格式必须 >=164 而抛异常。
   /// 清洗失败时原样返回，交由上层报错。
-  static List<int> _sanitizeXlsx(List<int> bytes) {
+  static List<int> sanitizeXlsx(List<int> bytes) {
     try {
       final Archive archive = ZipDecoder().decodeBytes(bytes);
       final Archive rebuilt = Archive();
@@ -440,6 +440,15 @@ class ExcelService {
     final List<HygieneRow> rows = _effectiveHygieneRows(s);
     for (int i = 0; i < rows.length; i++) {
       final HygieneRow r = rows[i];
+      // 无人宿舍：等级/得分/分项/奖励分全部留空，仅保留寝室号与备注
+      if (r.isUnoccupied) {
+        sb.writeln(
+          '${i + 1}\t${r.dorm}\t\t\t'
+          '${List<String>.filled(kHygieneItems.length, '').join('\t')}'
+          '\t\t${HygieneGrade.unoccupied}',
+        );
+        continue;
+      }
       sb.writeln(
         '${i + 1}\t${r.dorm}\t${r.effectiveGrade}\t${fmtScore(r.total)}\t'
         '${kHygieneItems.map((HygieneItem e) => fmtScore(r.scores[e.key] ?? 0)).join('\t')}'
@@ -596,14 +605,16 @@ class ExcelService {
         final HygieneRow r = dataRows[i - 1];
         // 13 列填写值（第 0 列序号模板已预填 1..20，原样保留）：
         // 寝室 / 等级 / 总分 / 8 个分项 / 奖励分 / 备注
+        // 无人宿舍：等级/总分/分项/奖励分全部留空，仅寝室号 + 备注
+        final bool unoccupied = r.isUnoccupied;
         final List<String> values = <String>[
           r.dorm,
-          r.effectiveGrade,
-          fmtScore(r.total),
+          unoccupied ? '' : r.exportGrade,
+          unoccupied ? '' : fmtScore(r.total),
           for (final HygieneItem item in kHygieneItems)
-            fmtScore(r.scores[item.key] ?? 0),
-          r.bonus == 0 ? '' : fmtScore(r.bonus),
-          r.remark,
+            unoccupied ? '' : fmtScore(r.scores[item.key] ?? 0),
+          unoccupied || r.bonus == 0 ? '' : fmtScore(r.bonus),
+          unoccupied ? HygieneGrade.unoccupied : r.remark,
         ];
         sb.write(_fillHygieneRowXml(rm.group(0)!, values));
       } else {
@@ -802,7 +813,15 @@ class ExcelService {
         continue;
       }
       setCell(1, r, row.dorm, borderStyle);
-      setCell(2, r, row.effectiveGrade, borderStyle);
+      if (row.isUnoccupied) {
+        // 无人宿舍：等级/得分/分项/奖励分留空，备注标注
+        for (int c = 2; c <= 12; c++) {
+          setCell(c, r, '', borderStyle);
+        }
+        setCell(13, r, HygieneGrade.unoccupied, borderStyle);
+        continue;
+      }
+      setCell(2, r, row.exportGrade, borderStyle);
       setNum(3, r, row.total, borderStyle);
       for (int j = 0; j < kHygieneItems.length; j++) {
         setNum(4 + j, r, row.scores[kHygieneItems[j].key] ?? 0, borderStyle);

@@ -11,6 +11,7 @@ import '../main.dart';
 import '../models.dart';
 import '../widgets/common.dart';
 import 'hygiene_edit_page.dart';
+import 'merge_page.dart';
 import 'person_page.dart';
 import 'session_edit_page.dart';
 
@@ -38,8 +39,9 @@ class _HomeEntry {
   );
 
   factory _HomeEntry.fromHygiene(HygieneSession s) {
-    final int dormCount =
-        s.rows.where((HygieneRow r) => r.dorm.trim().isNotEmpty).length;
+    final int dormCount = s.rows
+        .where((HygieneRow r) => r.dorm.trim().isNotEmpty)
+        .length;
     return _HomeEntry(
       id: s.id,
       date: s.date,
@@ -69,8 +71,9 @@ class HomePage extends StatelessWidget {
     BuildContext context,
     InspectionSession? session,
   ) async {
-    final String defaultInspector =
-        AppScope.of(context).storage.defaultInspector;
+    final String defaultInspector = AppScope.of(context)
+        .storage
+        .defaultInspector;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SessionEditPage(
@@ -85,8 +88,9 @@ class HomePage extends StatelessWidget {
     BuildContext context,
     HygieneSession? session,
   ) async {
-    final String defaultInspector =
-        AppScope.of(context).storage.defaultInspector;
+    final String defaultInspector = AppScope.of(context)
+        .storage
+        .defaultInspector;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => HygieneEditPage(
@@ -130,10 +134,7 @@ class HomePage extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '选择查寝格式',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -148,6 +149,14 @@ class HomePage extends StatelessWidget {
                 '卫生',
                 '内务卫生评分表，可按人员库寝室自动成行',
                 () => _openHygieneEditor(context, null),
+              ),
+              item(
+                Icons.merge_type,
+                '多文档合成',
+                '导入多份本软件生成的文档，合成为一份总结',
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const MergePage()),
+                ),
               ),
               const SizedBox(height: 8),
             ],
@@ -245,10 +254,7 @@ class HomePage extends StatelessWidget {
     }
   }
 
-  void _showHygieneExportOptions(
-    BuildContext context,
-    HygieneSession session,
-  ) {
+  void _showHygieneExportOptions(BuildContext context, HygieneSession session) {
     showExportOptionsSheet(
       context,
       options: <ExportOption>[
@@ -317,10 +323,7 @@ class HomePage extends StatelessWidget {
     ]..sort((_HomeEntry a, _HomeEntry b) => b.date.compareTo(a.date));
 
     return MiuixScaffold(
-      topBar: const MiuixTopAppBar(
-        title: '查寝助手',
-        largeTitle: '查寝记录',
-      ),
+      topBar: const MiuixTopAppBar(title: '查寝助手', largeTitle: '查寝记录'),
       floatingActionButton: MiuixFloatingActionButton(
         onPressed: () => _showCreateSheet(context),
         child: const Icon(Icons.add, color: Colors.white),
@@ -469,7 +472,9 @@ class _TypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color tint = hygiene ? const Color(0xFF2E9E5B) : const Color(0xFF5B6BDB);
+    final Color tint = hygiene
+        ? const Color(0xFF2E9E5B)
+        : const Color(0xFF5B6BDB);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(

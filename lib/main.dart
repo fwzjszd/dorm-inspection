@@ -14,8 +14,95 @@ import 'widgets/app_toast.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _registerAppLicense();
-  final StorageService storage = await StorageService.create();
-  runApp(DormInspectionApp(storage: storage));
+  // 不再在此 await 存储加载：数据量大时 jsonDecode 会把首帧阻塞数百毫秒，
+  // 表现为点开应用长时间黑屏 / 卡死。先挂闪屏，加载在首帧之后进行。
+  runApp(const AppBoot());
+}
+
+/// 启动门：立即显示轻量闪屏，存储服务（SharedPreferences + 数据解析）
+/// 在首帧渲染后于后台完成，就绪后无缝切换到主应用。
+class AppBoot extends StatefulWidget {
+  const AppBoot({super.key});
+
+  @override
+  State<AppBoot> createState() => _AppBootState();
+}
+
+class _AppBootState extends State<AppBoot> {
+  StorageService? _storage;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      final StorageService storage = await StorageService.create();
+      if (!mounted) return;
+      setState(() => _storage = storage);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final StorageService? storage = _storage;
+    if (storage != null) {
+      return DormInspectionApp(storage: storage);
+    }
+    // 默认深色闪屏（与应用默认主题一致），无玻璃 / 无列表，构建开销极小
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF101216),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Text(
+                '查寝助手',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
+              if (_error != null) ...<Widget>[
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Text(
+                    '本地数据加载失败：$_error',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 将应用自身的 GPLv3 协议文本注册进系统的许可注册表，
@@ -64,8 +151,13 @@ class DormInspectionApp extends StatelessWidget {
       snackbar: snackbar,
       child: Builder(
         builder: (BuildContext context) {
-          // 液态玻璃 + 深色模式锁定，不再给用户切换
-          const MiuixColorSchemeMode themeMode = MiuixColorSchemeMode.dark;
+          // 用户主题选择：跟随系统 / 日间 / 夜间
+          final StorageService storage = AppScope.of(context).storage;
+          final MiuixColorSchemeMode themeMode = storage.darkMode == null
+              ? MiuixColorSchemeMode.system
+              : storage.darkMode == true
+              ? MiuixColorSchemeMode.dark
+              : MiuixColorSchemeMode.light;
           return MiuixThemeController(
             colorSchemeMode: themeMode,
             child: Builder(

@@ -23,6 +23,12 @@ class AppToastState extends ChangeNotifier {
     _seq++;
     notifyListeners();
   }
+
+  /// 淡出结束后清空内容：message 保留旧值时，宿主因任何原因重建
+  /// （路由切换、主题变化等）都可能让已消失的提示重新显示。
+  void clear() {
+    _message = '';
+  }
 }
 
 /// 悬浮提示宿主：置于 MaterialApp.builder 的 Stack 顶层
@@ -37,11 +43,15 @@ class AppToastHost extends StatefulWidget {
 
 class _AppToastHostState extends State<AppToastHost>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 260),
-    reverseDuration: const Duration(milliseconds: 200),
-  );
+  late final AnimationController _controller =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 260),
+        reverseDuration: const Duration(milliseconds: 200),
+      )..addStatusListener((AnimationStatus status) {
+        // 淡出完成后清空文案，防止宿主重建时旧提示重新可见
+        if (status == AnimationStatus.dismissed) widget.state.clear();
+      });
   Timer? _timer;
   int _shownSeq = 0;
 

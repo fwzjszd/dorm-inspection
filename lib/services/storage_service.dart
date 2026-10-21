@@ -16,21 +16,15 @@ class StorageService extends ChangeNotifier {
   static const String _kHygiene = 'hygiene_sessions_v1';
   static const String _kWords = 'words_v1';
   static const String _kDarkMode = 'settings_dark_mode_v1';
-  static const String _kLiquidGlass = 'settings_liquid_glass_v1';
   static const String _kInspectors = 'settings_inspectors_v1';
   static const String _kDefaultInspector = 'settings_default_inspector_v1';
 
   final SharedPreferences _prefs;
 
-  /// 默认深色模式（液态玻璃锁定深色；保留 bool? 兼容旧备份恢复）
+  /// 深色模式：null=跟随系统，true=深色，false=浅色（默认深色）
   bool? _darkMode = true;
 
   bool? get darkMode => _darkMode;
-
-  /// 液态玻璃：默认开启；锁定深色主题
-  bool _liquidGlass = true;
-
-  bool get liquidGlass => _liquidGlass;
 
   /// 设置页维护的查寝人员名单；[defaultInspector] 为新建批次时预填的人名
   List<String> _inspectors = <String>[];
@@ -75,46 +69,44 @@ class StorageService extends ChangeNotifier {
     return list;
   }
 
+  /// 启动加载：SharedPreferences 取实例很快，但四个大键的 jsonDecode +
+  /// 逐条模型解析在数据量大时会阻塞 UI isolate 数百毫秒（表现为点开应用
+  /// 长时间黑屏 / 卡死）。这里把纯 JSON 解码丢到后台 isolate，主 isolate
+  /// 只承担模型构造，且整个加载发生在 runApp 之后（见 main.dart 启动闪屏）。
   static Future<StorageService> create() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final StorageService svc = StorageService._(prefs);
-    svc._load();
+    await svc._loadAsync();
     return svc;
   }
 
-  void _load() {
-    // 强制默认：液态玻璃 + 深色模式，不再读旧值
+  Future<void> _loadAsync() async {
     _darkMode = _prefs.getBool(_kDarkMode) ?? true;
-    _liquidGlass = _prefs.getBool(_kLiquidGlass) ?? true;
-    // 液态玻璃开启时强制深色
-    if (_liquidGlass) _darkMode = true;
     _inspectors = _prefs.getStringList(_kInspectors) ?? <String>[];
     _defaultInspector = _prefs.getString(_kDefaultInspector) ?? '';
-    _persons = _decodeList(_prefs.getString(_kPersons), Person.fromJson);
-    _sessions = _decodeList(
-      _prefs.getString(_kSessions),
+    final _RawStorageData raw = await compute(
+      _decodeRawStorage,
+      _RawStorageArgs(
+        _prefs.getString(_kPersons),
+        _prefs.getString(_kSessions),
+        _prefs.getString(_kHygiene),
+        _prefs.getString(_kWords),
+      ),
+    );
+    _persons = _parseList<Person>(raw.persons, Person.fromJson);
+    _sessions = _parseList<InspectionSession>(
+      raw.sessions,
       InspectionSession.fromJson,
     );
-    _hygiene = _decodeList(
-      _prefs.getString(_kHygiene),
+    _hygiene = _parseList<HygieneSession>(
+      raw.hygiene,
       HygieneSession.fromJson,
     );
-    _words = _decodeWords(_prefs.getString(_kWords));
-  }
-
-  /// 逐条解析，单条坏数据只跳过该条，不阻断应用启动
-  List<T> _decodeList<T>(
-    String? src,
-    T Function(Map<String, dynamic>) fromJson,
-  ) {
-    if (src == null || src.isEmpty) return <T>[];
-    dynamic decoded;
-    try {
-      decoded = jsonDecode(src);
-    } catch (_) {
-      return <T>[];
-    }
-    return _parseList<T>(decoded, fromJson);
+    _words = <String, List<String>>{
+      for (final MapEntry<dynamic, dynamic> e in raw.words.entries)
+        if (e.key is String && e.value is List)
+          e.key as String: (e.value as List).whereType<String>().toList(),
+    };
   }
 
   /// 从已解码的 JSON 值解析列表：非 List 返回空；逐条 try/catch 跳过坏数据
@@ -135,23 +127,6 @@ class StorageService extends ChangeNotifier {
     return out;
   }
 
-  Map<String, List<String>> _decodeWords(String? src) {
-    if (src == null || src.isEmpty) return <String, List<String>>{};
-    dynamic raw;
-    try {
-      raw = jsonDecode(src);
-    } catch (_) {
-      return <String, List<String>>{};
-    }
-    if (raw is! Map) return <String, List<String>>{};
-    final Map<String, List<String>> out = <String, List<String>>{};
-    raw.forEach((dynamic key, dynamic value) {
-      if (key is! String || value is! List) return;
-      out[key] = value.whereType<String>().toList();
-    });
-    return out;
-  }
-
   // ========== 设置 ==========
 
   /// 设置夜间模式：null=跟随系统，true=深色，false=浅色
@@ -161,17 +136,6 @@ class StorageService extends ChangeNotifier {
       await _prefs.remove(_kDarkMode);
     } else {
       await _prefs.setBool(_kDarkMode, value);
-    }
-    notifyListeners();
-  }
-
-  /// 切换液态玻璃。开启时强制深色主题（与 BiliMax 行为一致）。
-  Future<void> setLiquidGlass(bool value) async {
-    _liquidGlass = value;
-    await _prefs.setBool(_kLiquidGlass, value);
-    if (value && _darkMode != true) {
-      _darkMode = true;
-      await _prefs.setBool(_kDarkMode, true);
     }
     notifyListeners();
   }
@@ -271,12 +235,14 @@ class StorageService extends ChangeNotifier {
       _sessions.insert(0, session);
     }
     _persistSessions();
-    // 记录里出现的内容沉淀为历史词库
-    for (final InspectionRecord r in session.records) {
-      addWords('reason', <String>[r.reason]);
-    }
-    addWords('inspector', <String>[session.inspector]);
-    addWords('dormRange', <String>[session.dormRange]);
+    // 记录里出现的内容沉淀为历史词库（静默合并：一次写盘、一次通知，
+    // 避免每条记录都触发 jsonEncode 整表 + 全树重建）
+    _addWordsSilent('reason', <String>[
+      for (final InspectionRecord r in session.records) r.reason,
+    ]);
+    _addWordsSilent('inspector', <String>[session.inspector]);
+    _addWordsSilent('dormRange', <String>[session.dormRange]);
+    _persistWords();
     notifyListeners();
   }
 
@@ -303,8 +269,10 @@ class StorageService extends ChangeNotifier {
       _hygiene.insert(0, session);
     }
     _persistHygiene();
-    addWords('inspector', <String>[session.inspector]);
-    addWords('building', <String>[session.building]);
+    // 静默合并词库：一次写盘、一次通知
+    _addWordsSilent('inspector', <String>[session.inspector]);
+    _addWordsSilent('building', <String>[session.building]);
+    _persistWords();
     notifyListeners();
   }
 
@@ -325,6 +293,15 @@ class StorageService extends ChangeNotifier {
 
   /// 合并一批输入到指定字段的历史词库（去空、去重）。
   void addWords(String field, Iterable<String> values) {
+    if (_addWordsSilent(field, values)) {
+      _persistWords();
+      notifyListeners();
+    }
+  }
+
+  /// 静默合并词库：只改内存，不写盘、不通知，由调用方统一持久化与通知。
+  /// 返回是否有新增。
+  bool _addWordsSilent(String field, Iterable<String> values) {
     final List<String> list = _words.putIfAbsent(field, () => <String>[]);
     bool changed = false;
     for (String v in values) {
@@ -334,10 +311,11 @@ class StorageService extends ChangeNotifier {
         changed = true;
       }
     }
-    if (changed) {
-      _prefs.setString(_kWords, jsonEncode(_words));
-      notifyListeners();
-    }
+    return changed;
+  }
+
+  void _persistWords() {
+    _prefs.setString(_kWords, jsonEncode(_words));
   }
 
   List<String> words(String field) =>
@@ -392,7 +370,6 @@ class StorageService extends ChangeNotifier {
     'inspectors': _inspectors,
     'defaultInspector': _defaultInspector,
     'darkMode': _darkMode,
-    'liquidGlass': _liquidGlass,
   };
 
   /// 用备份数据覆盖当前整库并落盘。
@@ -425,11 +402,7 @@ class StorageService extends ChangeNotifier {
       _defaultInspector = _inspectors.first;
     }
 
-    final bool liquid = data['liquidGlass'] as bool? ?? _liquidGlass;
-    final bool? dark = data['darkMode'] as bool?;
-    _liquidGlass = liquid;
-    // 与 setLiquidGlass 保持一致：液态玻璃开启时锁定深色主题
-    _darkMode = liquid ? true : dark;
+    _darkMode = data['darkMode'] as bool? ?? _darkMode;
 
     await _persistAll();
     notifyListeners();
@@ -458,6 +431,61 @@ class StorageService extends ChangeNotifier {
     } else {
       await _prefs.setBool(_kDarkMode, dark);
     }
-    await _prefs.setBool(_kLiquidGlass, _liquidGlass);
   }
+}
+
+/// 后台 isolate 入参：四个持久化大键的原始 JSON 字符串
+class _RawStorageArgs {
+  const _RawStorageArgs(this.persons, this.sessions, this.hygiene, this.words);
+
+  final String? persons;
+  final String? sessions;
+  final String? hygiene;
+  final String? words;
+}
+
+/// 后台 isolate 出参：仅含基础类型（List/Map/String），可跨 isolate 传递
+class _RawStorageData {
+  const _RawStorageData({
+    required this.persons,
+    required this.sessions,
+    required this.hygiene,
+    required this.words,
+  });
+
+  final List<dynamic> persons;
+  final List<dynamic> sessions;
+  final List<dynamic> hygiene;
+  final Map<dynamic, dynamic> words;
+}
+
+/// 在后台 isolate 中只做纯 jsonDecode（CPU 密集且无原生通道依赖），
+/// 避免数据量大时在 UI isolate 阻塞首帧。单键损坏不影响其他键。
+_RawStorageData _decodeRawStorage(_RawStorageArgs args) {
+  List<dynamic> decodeList(String? src) {
+    if (src == null || src.isEmpty) return const <dynamic>[];
+    try {
+      final dynamic v = jsonDecode(src);
+      return v is List ? v : const <dynamic>[];
+    } catch (_) {
+      return const <dynamic>[];
+    }
+  }
+
+  Map<dynamic, dynamic> decodeMap(String? src) {
+    if (src == null || src.isEmpty) return const <dynamic, dynamic>{};
+    try {
+      final dynamic v = jsonDecode(src);
+      return v is Map ? v : const <dynamic, dynamic>{};
+    } catch (_) {
+      return const <dynamic, dynamic>{};
+    }
+  }
+
+  return _RawStorageData(
+    persons: decodeList(args.persons),
+    sessions: decodeList(args.sessions),
+    hygiene: decodeList(args.hygiene),
+    words: decodeMap(args.words),
+  );
 }
