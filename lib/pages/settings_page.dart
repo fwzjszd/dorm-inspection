@@ -11,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../main.dart';
 import '../services/device_info_service.dart';
 import '../services/storage_service.dart';
+import '../services/update_service.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/common.dart';
 import 'person_page.dart';
 
@@ -692,12 +694,25 @@ class _AboutPageState extends State<AboutPage> {
                       fontWeight: FontWeight.w600,
                     ),
                     const SizedBox(height: 6),
-                    MiuixText(
-                      _appVersion.isNotEmpty
-                          ? '版本 $_appVersion'
-                          : '版本（release 包可见）',
-                      fontSize: 14,
-                      color: colors.onBackgroundVariant,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        MiuixText(
+                          _appVersion.isNotEmpty
+                              ? '版本 $_appVersion'
+                              : '版本（release 包可见）',
+                          fontSize: 14,
+                          color: colors.onBackgroundVariant,
+                        ),
+                        // 应用内更新只支持 Android（GitHub Releases 中的 APK 资产）
+                        if (Platform.isAndroid) ...<Widget>[
+                          const SizedBox(width: 10),
+                          _CheckUpdateButton(
+                            currentVersion: _appVersion,
+                            snackbar: AppScope.of(context).snackbar,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 6),
                     MiuixText(
@@ -766,6 +781,260 @@ class _AboutPageState extends State<AboutPage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 关于页版本号旁的「检查更新」按钮：仅 Android 端放入。
+/// 检查 GitHub Releases 最新发布，发现新版本时弹出下载/安装对话框。
+class _CheckUpdateButton extends StatefulWidget {
+  const _CheckUpdateButton({required this.currentVersion, required this.snackbar});
+
+  /// 当前包版本（由 --dart-define=APP_VERSION 注入，可能为空）
+  final String currentVersion;
+
+  final AppToastState snackbar;
+
+  @override
+  State<_CheckUpdateButton> createState() => _CheckUpdateButtonState();
+}
+
+class _CheckUpdateButtonState extends State<_CheckUpdateButton> {
+  bool _busy = false;
+
+  Future<void> _check() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final UpdateResult result =
+          await UpdateService.checkForUpdate(widget.currentVersion);
+      if (!mounted) return;
+      if (!result.hasUpdate) {
+        await _showResultDialog(
+          title: '已是最新版本',
+          content: '当前版本${widget.currentVersion.isNotEmpty ? ' ${widget.currentVersion}，' : '，'}'
+              '暂无需更新。',
+        );
+        return;
+      }
+      await showDialog<bool>(
+        context: context,
+        builder: (_) => _UpdateDialog(info: result.info!),
+      );
+    } on UpdateException catch (e) {
+      if (mounted) widget.snackbar.showSnackbar(e.message);
+    } catch (_) {
+      if (mounted) widget.snackbar.showSnackbar('检查更新失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _showResultDialog({
+    required String title,
+    required String content,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('好的'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _busy ? null : _check,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            const Icon(Icons.refresh, size: 14, color: _kAccent),
+          const SizedBox(width: 2),
+          const MiuixText(
+            '检查更新',
+            fontSize: 13,
+            color: _kAccent,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 新版本对话框：展示版本/大小/更新说明，支持下载进度与拉起安装。
+class _UpdateDialog extends StatefulWidget {
+  const _UpdateDialog({required this.info});
+
+  final UpdateInfo info;
+
+  @override
+  State<_UpdateDialog> createState() => _UpdateDialogState();
+}
+
+class _UpdateDialogState extends State<_UpdateDialog> {
+  double? _progress; // null = 未开始下载
+  File? _apkFile;
+  String? _error;
+  bool _installing = false;
+
+  bool get _downloading => _progress != null && _progress! < 1 && _apkFile == null;
+
+  static String _formatSize(int bytes) {
+    if (bytes <= 0) return '大小未知';
+    const List<String> units = <String>['B', 'KB', 'MB', 'GB'];
+    double size = bytes.toDouble();
+    int unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit++;
+    }
+    return '${size.toStringAsFixed(size >= 10 || unit == 0 ? 0 : 1)} ${units[unit]}';
+  }
+
+  Future<void> _download() async {
+    if (_progress != null) return;
+    setState(() {
+      _error = null;
+      _progress = 0;
+    });
+    try {
+      final File file = await UpdateService.downloadApk(
+        widget.info,
+        onProgress: (double p) {
+          if (mounted) setState(() => _progress = p);
+        },
+      );
+      if (mounted) {
+        setState(() {
+          _apkFile = file;
+          _progress = 1;
+        });
+      }
+    } on UpdateException catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.message;
+          _progress = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = '下载失败，请稍后重试';
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _install() async {
+    final File? file = _apkFile;
+    if (file == null || _installing) return;
+    setState(() {
+      _installing = true;
+      _error = null;
+    });
+    try {
+      await UpdateService.installApk(file);
+      if (mounted) Navigator.of(context).pop(true);
+    } on UpdateException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _installing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final UpdateInfo info = widget.info;
+    final String? date = info.publishedAt == null
+        ? null
+        : '${info.publishedAt!.year}-'
+            '${info.publishedAt!.month.toString().padLeft(2, '0')}-'
+            '${info.publishedAt!.day.toString().padLeft(2, '0')}';
+    return AlertDialog(
+      title: Text('发现新版本 ${info.version}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          MiuixText(
+            <String>[
+              _formatSize(info.apkSize),
+              if (date != null) '发布于 $date',
+            ].join('　·　'),
+            fontSize: 12,
+            color: MiuixTheme.of(context).colors.onBackgroundVariant,
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: SingleChildScrollView(
+              child: Text(
+                info.releaseNotes.isNotEmpty ? info.releaseNotes : '（未提供更新说明）',
+                style: const TextStyle(fontSize: 14, height: 1.5),
+              ),
+            ),
+          ),
+          if (_progress != null) ...<Widget>[
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: _progress! >= 1 ? null : _progress,
+                minHeight: 6,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _apkFile != null
+                  ? '下载完成，可以安装'
+                  : '正在下载… ${(_progress! * 100).clamp(0, 99).toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(_error!, style: const TextStyle(fontSize: 12, color: Colors.red)),
+          ],
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed:
+              _downloading || _installing ? null : () => Navigator.of(context).pop(),
+          child: const Text('以后再说'),
+        ),
+        if (_apkFile == null)
+          TextButton(
+            onPressed: _downloading ? null : _download,
+            child: Text(_progress == null ? '下载更新' : '下载中…'),
+          )
+        else
+          TextButton(
+            onPressed: _installing ? null : _install,
+            child: Text(_installing ? '正在打开…' : '立即安装'),
+          ),
+      ],
     );
   }
 }

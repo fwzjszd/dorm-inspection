@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.1+4
+version: 1.0.1+5
 
 environment:
   sdk: ^3.13.5
@@ -47,6 +47,8 @@ dependencies:
   path: ^1.9.1
   # 关于页读取设备型号与 Android 系统版本
   device_info_plus: ^13.3.0
+  # Android 更新：下载 APK 后调起系统安装器（仅 Android 使用）
+  open_filex: ^4.7.0
 
 # 钉住 Android 实现：2.5.0 将通道改为 Pigeon JNI 原生互操作，
 # 在部分 release 设备上启动期 JNI registrar 建立失败，导致 runApp() 前

@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 查询 GitHub Releases 与下载 APK 更新包 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 下载完成后调起系统 APK 安装器（open_filex 也会合并该权限，此处显式声明） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="查寝助手"
         android:name="${applicationName}"
