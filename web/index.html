@@ -52,7 +52,23 @@
     window.addEventListener('load', function () {
       if ('serviceWorker' in navigator) {
         var swUrl = new URL('service_worker.js', document.baseURI).href;
-        navigator.serviceWorker.register(swUrl).catch(function (e) {
+        navigator.serviceWorker.register(swUrl).then(function (reg) {
+          // 新版本 SW 安装完成后因 skipWaiting 立即激活，接管页面
+          // （controllerchange）时自动刷新一次拿到最新产物；首次安装时
+          // 页面尚无控制器，不触发刷新。
+          function watch(worker) {
+            if (!worker) return;
+            worker.addEventListener('statechange', function () {
+              if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.addEventListener('controllerchange', function () {
+                  window.location.reload();
+                });
+              }
+            });
+          }
+          watch(reg.installing);
+          reg.addEventListener('updatefound', function () { watch(reg.installing); });
+        }).catch(function (e) {
           console.warn('Service worker register failed:', e);
         });
       }

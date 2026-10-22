@@ -6,7 +6,10 @@
 # CanvasKit 经 --no-web-resources-cdn 同源托管；回落字体基址由
 # tool/patch_bootstrap.ps1 构建后补丁指向同源 fonts/s/（零第三方 CDN）。
 param(
-  [string]$WebDir = (Join-Path $PSScriptRoot '..\build\web')
+  [string]$WebDir = (Join-Path $PSScriptRoot '..\build\web'),
+  # 每次部署唯一的缓存版本标识（CI 传 commit SHA）。
+  # 必须随构建产物变化，否则浏览器逐字节比对认为 SW 未更新，会一直返回旧缓存。
+  [string]$CacheStamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,5 +42,10 @@ if ($updated -eq $content) {
   throw 'PRECACHE_URLS placeholder not found in service_worker.js'
 }
 
+# 注入随本次部署变化的缓存版本号，强制浏览器识别到新 SW 并清理旧缓存
+$cachePattern = "const CACHE_VERSION = '[^']*';"
+$cacheReplacement = "const CACHE_VERSION = 'dorm-inspection-$CacheStamp';"
+$updated = [regex]::Replace($updated, $cachePattern, { param($m) $cacheReplacement })
+
 [System.IO.File]::WriteAllText($swPath, $updated, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "Injected $($urls.Count) precache URLs into service_worker.js"
+Write-Host "Injected $($urls.Count) precache URLs, CACHE_VERSION=dorm-inspection-$CacheStamp"

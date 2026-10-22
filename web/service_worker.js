@@ -5,9 +5,11 @@
 // 1. 导航请求（HTML）网络优先，失败时回退缓存的应用外壳；
 // 2. 同源静态资源（JS / 字体 / 图标 / assets）缓存优先，后台更新；
 // 3. 跨域请求不拦截。
-// 修改构建产物后只需提升 CACHE_VERSION，旧缓存会在 activate 时清理。
+// CACHE_VERSION 由 tool\inject_sw_manifest.ps1 在每次构建时按 commit SHA
+// 自动替换（必须随产物变化，否则浏览器逐字节比对认为 SW 未更新），旧缓存
+// 会在 activate 时清理。
 
-const CACHE_VERSION = 'dorm-inspection-v3';
+const CACHE_VERSION = 'dorm-inspection-dev';
 
 // 注意：PRECACHE_URLS 由 tool\inject_sw_manifest.ps1 在 flutter build web 后
 // 自动替换为 build\web 下全部产物的相对路径列表，请勿手改这一行。
