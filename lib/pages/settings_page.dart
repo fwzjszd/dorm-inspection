@@ -391,10 +391,14 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
 
   Future<void> _refreshSize() async {
     final Directory dir = await getTemporaryDirectory();
-    final int bytes = await _calcCacheBytes(dir);
+    // 应用内更新下载的安装包存放在外部专属目录、不计入临时目录，需一并统计。
+    final List<int> sizes = await Future.wait<int>(<Future<int>>[
+      _calcCacheBytes(dir),
+      UpdateService.leftoverApkBytes(),
+    ]);
     if (!mounted) return;
     setState(() {
-      _sizeLabel = _formatBytes(bytes);
+      _sizeLabel = _formatBytes(sizes[0] + sizes[1]);
     });
   }
 
@@ -404,7 +408,9 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
         title: const Text('清除缓存'),
-        content: Text('$_sizeLabel 的临时文件（导出表格等）将被删除，人员库与查寝记录不受影响。确定清除吗？'),
+        content: Text(
+          '$_sizeLabel 的临时文件（导出表格、已下载的更新安装包等）将被删除，人员库与查寝记录不受影响。确定清除吗？',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -430,6 +436,8 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
           // 被占用或无权限的文件跳过。
         }
       }
+      // 同时删除应用内更新残留在外部专属目录的安装包。
+      await UpdateService.cleanupDownloadedApks();
       await _refreshSize();
       if (mounted) scope.snackbar.showSnackbar('缓存已清除');
     } catch (_) {
@@ -788,7 +796,10 @@ class _AboutPageState extends State<AboutPage> {
 /// 关于页版本号旁的「检查更新」按钮：仅 Android 端放入。
 /// 检查 GitHub Releases 最新发布，发现新版本时弹出下载/安装对话框。
 class _CheckUpdateButton extends StatefulWidget {
-  const _CheckUpdateButton({required this.currentVersion, required this.snackbar});
+  const _CheckUpdateButton({
+    required this.currentVersion,
+    required this.snackbar,
+  });
 
   /// 当前包版本（由 --dart-define=APP_VERSION 注入，可能为空）
   final String currentVersion;
@@ -806,13 +817,15 @@ class _CheckUpdateButtonState extends State<_CheckUpdateButton> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final UpdateResult result =
-          await UpdateService.checkForUpdate(widget.currentVersion);
+      final UpdateResult result = await UpdateService.checkForUpdate(
+        widget.currentVersion,
+      );
       if (!mounted) return;
       if (!result.hasUpdate) {
         await _showResultDialog(
           title: '已是最新版本',
-          content: '当前版本${widget.currentVersion.isNotEmpty ? ' ${widget.currentVersion}，' : '，'}'
+          content:
+              '当前版本${widget.currentVersion.isNotEmpty ? ' ${widget.currentVersion}，' : '，'}'
               '暂无需更新。',
         );
         return;
@@ -869,11 +882,7 @@ class _CheckUpdateButtonState extends State<_CheckUpdateButton> {
           else
             const Icon(Icons.refresh, size: 14, color: _kAccent),
           const SizedBox(width: 2),
-          const MiuixText(
-            '检查更新',
-            fontSize: 13,
-            color: _kAccent,
-          ),
+          const MiuixText('检查更新', fontSize: 13, color: _kAccent),
         ],
       ),
     );
@@ -896,7 +905,8 @@ class _UpdateDialogState extends State<_UpdateDialog> {
   String? _error;
   bool _installing = false;
 
-  bool get _downloading => _progress != null && _progress! < 1 && _apkFile == null;
+  bool get _downloading =>
+      _progress != null && _progress! < 1 && _apkFile == null;
 
   static String _formatSize(int bytes) {
     if (bytes <= 0) return '大小未知';
@@ -969,8 +979,8 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     final String? date = info.publishedAt == null
         ? null
         : '${info.publishedAt!.year}-'
-            '${info.publishedAt!.month.toString().padLeft(2, '0')}-'
-            '${info.publishedAt!.day.toString().padLeft(2, '0')}';
+              '${info.publishedAt!.month.toString().padLeft(2, '0')}-'
+              '${info.publishedAt!.day.toString().padLeft(2, '0')}';
     return AlertDialog(
       title: Text('发现新版本 ${info.version}'),
       content: Column(
@@ -1014,14 +1024,18 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ],
           if (_error != null) ...<Widget>[
             const SizedBox(height: 10),
-            Text(_error!, style: const TextStyle(fontSize: 12, color: Colors.red)),
+            Text(
+              _error!,
+              style: const TextStyle(fontSize: 12, color: Colors.red),
+            ),
           ],
         ],
       ),
       actions: <Widget>[
         TextButton(
-          onPressed:
-              _downloading || _installing ? null : () => Navigator.of(context).pop(),
+          onPressed: _downloading || _installing
+              ? null
+              : () => Navigator.of(context).pop(),
           child: const Text('以后再说'),
         ),
         if (_apkFile == null)

@@ -141,8 +141,10 @@ class UpdateService {
   /// 兼容 V20261021.01、v1.0.2、1.0.1+4 等写法，逐段按数值比较，
   /// 无法解析为数字的段落退化为字符串比较。
   static bool isNewer(String remoteVersion, String currentVersion) {
-    return _compareVersions(_normalize(remoteVersion),
-            _normalize(currentVersion)) >
+    return _compareVersions(
+          _normalize(remoteVersion),
+          _normalize(currentVersion),
+        ) >
         0;
   }
 
@@ -196,42 +198,79 @@ class UpdateService {
     );
   }
 
-  /// 下载 APK 到应用外部缓存目录，[onProgress] 回调 0~1 的进度。
+  /// 下载时统一使用的固定文件名（不带版本号），避免每个版本各留一份安装包。
+  static const String _apkFileName = 'dorm-inspection-update.apk';
+
+  /// 更新安装包的存放目录：优先外部应用专属文件目录（系统安装器可直接读取，
+  /// 无需文件共享配置），不可用时回退内部缓存目录。
+  static Future<Directory> _downloadsDirectory() async {
+    // getExternalStorageDirectory 在非 Android 平台返回 null（其 Future 本身也可空）。
+    final Directory? external = await getExternalStorageDirectory();
+    return external ?? await getTemporaryDirectory();
+  }
+
+  /// 清理更新下载目录中残留的安装包：删除所有 .apk 文件（保留其它文件）。
+  /// 安装包体量大（约 58MB/份），安装完成后系统不会自动删除来源 APK，
+  /// 若不清理，历次版本会一直计入系统设置中的「用户数据」。
+  static Future<void> cleanupDownloadedApks() async {
+    final Directory dir = await _downloadsDirectory();
+    try {
+      await for (final FileSystemEntity entity in dir.list()) {
+        if (entity is File && entity.path.toLowerCase().endsWith('.apk')) {
+          try {
+            await entity.delete();
+          } catch (_) {
+            // 安装器仍占用等情况下跳过，下次启动或再次清理时删除。
+          }
+        }
+      }
+    } catch (_) {
+      // 目录尚不存在等情况无需处理。
+    }
+  }
+
+  /// 统计更新下载目录中残留 APK 的字节数，供设置页「清除缓存」展示。
+  static Future<int> leftoverApkBytes() async {
+    int total = 0;
+    final Directory dir = await _downloadsDirectory();
+    try {
+      await for (final FileSystemEntity entity in dir.list()) {
+        if (entity is File && entity.path.toLowerCase().endsWith('.apk')) {
+          try {
+            total += await entity.length();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  /// 下载 APK 到应用专属目录，[onProgress] 回调 0~1 的进度。
+  ///
+  /// 使用不带版本号的固定文件名，下载前先删除历史版本残留的安装包，
+  /// 保证任意时刻最多只有一份 APK。固定文件名不做跨进程断点续传
+  /// （旧版本的部分文件追加到新版本会导致安装包损坏），下载失败重新全量下载。
   static Future<File> downloadApk(
     UpdateInfo info, {
     required void Function(double progress) onProgress,
   }) async {
-    final Directory dir = await getExternalStorageDirectory() ??
-        await getTemporaryDirectory();
-    final File file = File('${dir.path}/${info.apkName}');
+    final Directory dir = await _downloadsDirectory();
+    // 删除历次版本（含本版本）残留的所有 APK，防止多版本堆积与脏续传。
+    await cleanupDownloadedApks();
+    final File file = File('${dir.path}/$_apkFileName');
 
     final HttpClient client = _client();
     try {
       final HttpClientRequest req = await client.getUrl(Uri.parse(info.apkUrl));
-      // 断点续传：已存在部分文件时从断点继续
-      int start = 0;
-      if (await file.exists()) {
-        start = await file.length();
-      }
-      if (start > 0 && (info.apkSize == 0 || start < info.apkSize)) {
-        req.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-');
-      } else if (start >= info.apkSize && info.apkSize > 0) {
-        onProgress(1);
-        return file;
-      }
       final HttpClientResponse resp = await req.close();
-      if (resp.statusCode != HttpStatus.ok &&
-          resp.statusCode != HttpStatus.partialContent) {
+      if (resp.statusCode != HttpStatus.ok) {
         throw UpdateException('下载失败（${resp.statusCode}）');
       }
-      final int total = (info.apkSize > 0 ? info.apkSize : start) +
-          (resp.contentLength > 0 ? resp.contentLength : 0);
-      final IOSink sink = file.openWrite(
-        mode: resp.statusCode == HttpStatus.partialContent
-            ? FileMode.append
-            : FileMode.write,
-      );
-      int received = start;
+      final int total = info.apkSize > 0
+          ? info.apkSize
+          : (resp.contentLength > 0 ? resp.contentLength : 0);
+      final IOSink sink = file.openWrite(mode: FileMode.write);
+      int received = 0;
       try {
         await for (final List<int> chunk in resp) {
           sink.add(chunk);

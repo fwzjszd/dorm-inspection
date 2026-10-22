@@ -6,14 +6,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_miuix/miuix.dart';
 
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'pages/home_shell.dart';
 import 'services/excel_service.dart';
 import 'services/storage_service.dart';
+import 'services/update_service.dart';
 import 'widgets/app_toast.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _registerAppLicense();
+  // Android 端后台清理应用内更新残留的旧安装包（每份约 58MB，
+  // 系统安装完成后不会自动删除来源 APK）。不 await，避免影响启动速度。
+  if (Platform.isAndroid) {
+    unawaited(UpdateService.cleanupDownloadedApks());
+  }
   // 不再在此 await 存储加载：数据量大时 jsonDecode 会把首帧阻塞数百毫秒，
   // 表现为点开应用长时间黑屏 / 卡死。先挂闪屏，加载在首帧之后进行。
   runApp(const AppBoot());
