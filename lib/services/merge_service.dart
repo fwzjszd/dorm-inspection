@@ -292,7 +292,7 @@ class MergeService {
     final String sub = lines.length > 1 ? lines[1] : '';
     if (sub.contains('检查人员')) {
       final RegExpMatch? im = RegExp(r'检查人员[：:]\s*([^）)]*)').firstMatch(sub);
-      inspector = im?.group(1)?.trim() ?? '';
+      inspector = _stripTrailingField(im?.group(1) ?? '');
       final int bi = sub.indexOf('（');
       final int pi = sub.indexOf('(');
       final int cut = <int>[bi, pi]
@@ -538,7 +538,7 @@ class MergeService {
     String grab(String label) {
       final RegExpMatch? m = RegExp(RegExp.escape(label) + r'\s*([^\s，,（(]*)')
           .firstMatch(subtitle);
-      return m?.group(1)?.trim() ?? '';
+      return _stripTrailingField(m?.group(1) ?? '');
     }
 
     inspector = grab('检查人员：');
@@ -619,6 +619,21 @@ class MergeService {
   }
 
   // ============================ 多文档合成 ============================
+
+  /// 去掉字段值尾部粘连的下一个字段标签与分隔符。
+  /// 手工编辑过的模板可能删掉字段间的空格 / Tab / 全角空格，导致
+  /// 「检查人员：黄子翔检查时间：20…」整段被当成检查人员，这里按已知
+  /// 标签截断，不依赖分隔符。
+  static String _stripTrailingField(String value) {
+    String v = value.trim();
+    final RegExpMatch? m = RegExp(
+      r'(检查时间|检查楼栋|第\s*\d+\s*周|星期)\s*[：:]?',
+    ).firstMatch(v);
+    if (m != null && m.start > 0) {
+      v = v.substring(0, m.start);
+    }
+    return v.trim().replaceAll(RegExp(r'[、,，\s　]+$'), '').trim();
+  }
 
   /// 把「姓名A、姓名B，姓名C 姓名D」拆成去重后的姓名列表
   static List<String> _splitNames(String raw) {
