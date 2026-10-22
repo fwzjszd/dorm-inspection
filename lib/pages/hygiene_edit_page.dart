@@ -216,6 +216,7 @@ class _HygieneEditPageState extends State<HygieneEditPage> {
       building: building,
       week: int.tryParse(_weekCtrl.text.trim()) ?? 1,
       weekday: _date.weekday,
+      merged: widget.session?.merged ?? false,
       rows: rows,
     );
   }
