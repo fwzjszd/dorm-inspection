@@ -99,6 +99,7 @@ class InspectionSession {
     this.title = '',
     this.dormRange = '',
     this.inspector = '',
+    this.merged = false,
     List<InspectionRecord>? records,
   }) : records = records ?? <InspectionRecord>[];
 
@@ -107,6 +108,7 @@ class InspectionSession {
   String title; // 自定义标题，为空时按 “M月d日检查宿舍” 生成
   String dormRange; // 检查宿舍范围，如 23#524、601-607
   String inspector; // 检查人员
+  bool merged; // 由多文档合成生成，首页显示「多文档导入」徽标
   List<InspectionRecord> records;
 
   /// 模板第一行标题
@@ -123,6 +125,7 @@ class InspectionSession {
       title: json['title'] as String? ?? '',
       dormRange: json['dormRange'] as String? ?? '',
       inspector: json['inspector'] as String? ?? '',
+      merged: json['merged'] as bool? ?? false,
       records: (json['records'] as List<dynamic>? ?? <dynamic>[])
           .whereType<Map>()
           .map(
@@ -138,6 +141,7 @@ class InspectionSession {
     'title': title,
     'dormRange': dormRange,
     'inspector': inspector,
+    'merged': merged,
     'records': records.map((InspectionRecord e) => e.toJson()).toList(),
   };
 }
@@ -289,6 +293,7 @@ class HygieneSession {
     this.building = '',
     this.week = 1,
     this.weekday = 1,
+    this.merged = false,
     List<HygieneRow>? rows,
   }) : rows = rows ?? <HygieneRow>[];
 
@@ -298,6 +303,7 @@ class HygieneSession {
   String building; // 检查楼栋，如 14#
   int week; // 第几周
   int weekday; // 星期几（1..7）
+  bool merged; // 由多文档合成生成，首页显示「多文档导入」徽标
   List<HygieneRow> rows;
 
   String get displayTitle => '${date.month}月${date.day}日卫生检查';
@@ -313,6 +319,7 @@ class HygieneSession {
       building: json['building'] as String? ?? '',
       week: (json['week'] as num?)?.toInt() ?? 1,
       weekday: (json['weekday'] as num?)?.toInt() ?? 1,
+      merged: json['merged'] as bool? ?? false,
       rows: (json['rows'] as List<dynamic>? ?? <dynamic>[])
           .whereType<Map>()
           .map((Map e) => HygieneRow.fromJson(Map<String, dynamic>.from(e)))
