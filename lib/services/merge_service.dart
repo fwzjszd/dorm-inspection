@@ -775,6 +775,7 @@ class MergeService {
         date: newest,
         dormRange: ranges.join('、'),
         inspector: inspectorNames.join('、'),
+        merged: true,
         records: records,
       );
     }
@@ -837,6 +838,7 @@ class MergeService {
         building: buildingList.join('、'),
         week: newestSession.week,
         weekday: newestSession.weekday,
+        merged: true,
         rows: rows,
       );
     }

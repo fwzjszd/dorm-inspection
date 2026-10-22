@@ -154,6 +154,7 @@ class _SessionEditPageState extends State<SessionEditPage> {
       title: _titleCtrl.text.trim(),
       dormRange: _rangeCtrl.text.trim(),
       inspector: _inspectorCtrl.text.trim(),
+      merged: widget.session?.merged ?? false,
       records: records,
     );
   }
