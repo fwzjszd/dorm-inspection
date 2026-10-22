@@ -1,14 +1,13 @@
 // 主页：查寝批次列表（晚归 / 卫生两类）
 // 顶部可进入人员库管理；右下角新建批次时先选格式；点击卡片进入编辑/导出
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_miuix/miuix.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../services/file_io.dart';
 import '../widgets/common.dart';
 import 'hygiene_edit_page.dart';
 import 'merge_page.dart';
@@ -185,8 +184,8 @@ class HomePage extends StatelessWidget {
   ) async {
     final AppScope scope = AppScope.of(context);
     try {
-      final File file = await scope.excel.exportSessionWord(session);
-      await scope.excel.shareFile(file);
+      final ExportedFile file = await scope.excel.exportSessionWord(session);
+      await saveOrShareFile(file);
     } catch (e) {
       scope.snackbar.showSnackbar('导出失败：$e');
     }
@@ -234,8 +233,8 @@ class HomePage extends StatelessWidget {
   ) async {
     final AppScope scope = AppScope.of(context);
     try {
-      final File file = await scope.excel.exportHygieneWord(session);
-      await scope.excel.shareFile(file);
+      final ExportedFile file = await scope.excel.exportHygieneWord(session);
+      await saveOrShareFile(file);
     } catch (e) {
       scope.snackbar.showSnackbar('导出失败：$e');
     }
@@ -247,8 +246,8 @@ class HomePage extends StatelessWidget {
   ) async {
     final AppScope scope = AppScope.of(context);
     try {
-      final File file = await scope.excel.exportHygiene(session);
-      await scope.excel.shareFile(file);
+      final ExportedFile file = await scope.excel.exportHygiene(session);
+      await saveOrShareFile(file);
     } catch (e) {
       scope.snackbar.showSnackbar('导出失败：$e');
     }

@@ -1,15 +1,14 @@
 // 设置页：复刻 BiliMax 的卡片式设置行（18dp 圆角卡 + 26dp 蓝色图标）
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_miuix/miuix.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../main.dart';
+import '../services/cache_service.dart';
 import '../services/device_info_service.dart';
+import '../services/file_io.dart';
 import '../services/storage_service.dart';
 import '../widgets/common.dart';
 import 'person_page.dart';
@@ -38,8 +37,11 @@ class SettingsPage extends StatelessWidget {
               const _BackupExportRow(),
               const SizedBox(height: 12),
               const _BackupRestoreRow(),
-              const SizedBox(height: 12),
-              const _ClearCacheRow(),
+              // Web 端无应用临时目录概念，隐藏缓存清理入口。
+              if (!kIsWeb) ...<Widget>[
+                const SizedBox(height: 12),
+                const _ClearCacheRow(),
+              ],
               const _GroupHeader('查寝人员'),
               const _InspectorCard(),
               const _GroupHeader('其他'),
@@ -262,10 +264,10 @@ class _BackupExportRowState extends State<_BackupExportRow> {
     setState(() => _busy = true);
     final AppScope scope = AppScope.of(context);
     try {
-      final File file = await scope.excel.exportBackupFile(
+      final ExportedFile file = scope.excel.exportBackupFile(
         scope.storage.exportBackup(),
       );
-      await scope.excel.shareFile(file);
+      await saveOrShareFile(file);
     } catch (_) {
       if (mounted) scope.snackbar.showSnackbar('导出备份失败');
     } finally {
@@ -359,20 +361,6 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
     _refreshSize();
   }
 
-  Future<int> _calcCacheBytes(Directory dir) async {
-    int total = 0;
-    try {
-      await for (final FileSystemEntity entity in dir.list(recursive: true)) {
-        if (entity is File) {
-          total += await entity.length();
-        }
-      }
-    } catch (_) {
-      // 临时目录下个别文件不可读时忽略，按已统计部分计。
-    }
-    return total;
-  }
-
   String _formatBytes(int bytes) {
     if (bytes < 1024) {
       return '$bytes B';
@@ -388,8 +376,7 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
   }
 
   Future<void> _refreshSize() async {
-    final Directory dir = await getTemporaryDirectory();
-    final int bytes = await _calcCacheBytes(dir);
+    final int bytes = await calculateCacheBytes();
     if (!mounted) return;
     setState(() {
       _sizeLabel = _formatBytes(bytes);
@@ -420,14 +407,7 @@ class _ClearCacheRowState extends State<_ClearCacheRow> {
     setState(() => _busy = true);
     final AppScope scope = AppScope.of(context);
     try {
-      final Directory dir = await getTemporaryDirectory();
-      await for (final FileSystemEntity entity in dir.list()) {
-        try {
-          await entity.delete(recursive: true);
-        } catch (_) {
-          // 被占用或无权限的文件跳过。
-        }
-      }
+      await clearCache();
       await _refreshSize();
       if (mounted) scope.snackbar.showSnackbar('缓存已清除');
     } catch (_) {

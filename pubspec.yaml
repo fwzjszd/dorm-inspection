@@ -47,6 +47,8 @@ dependencies:
   path: ^1.9.1
   # 关于页读取设备型号与 Android 系统版本
   device_info_plus: ^13.3.0
+  # Web 端（PWA）文件下载 / 系统分享与 UA 解析
+  web: ^1.1.1
 
 # 钉住 Android 实现：2.5.0 将通道改为 Pigeon JNI 原生互操作，
 # 在部分 release 设备上启动期 JNI registrar 建立失败，导致 runApp() 前

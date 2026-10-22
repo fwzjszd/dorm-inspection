@@ -1,0 +1,88 @@
+# 网页版（PWA）自动构建并部署到 GitHub Pages 项目站点。
+# 仅在 web-pwa 分支推送时触发，不影响 main 分支。
+#
+# 首次使用前，需在仓库 Settings → Pages → Build and deployment → Source
+# 选择 "GitHub Actions"。
+#
+# 部署后的访问地址（项目站点，带仓库名前缀）：
+#   https://fwzjszd.github.io/dorm-inspection/
+#
+# 离线与零第三方 CDN 说明：
+#   - --no-web-resources-cdn 让 CanvasKit 走同源（build/web/canvaskit）；
+#   - tool/patch_bootstrap.ps1 把回落字体基址指向同源 fonts/s/；
+#   - tool/inject_sw_manifest.ps1 注入全量预缓存清单，Service Worker 安装后即可离线打开。
+
+name: Web PWA Deploy
+
+on:
+  push:
+    branches: [web-pwa]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只保留最新一次部署，避免并发覆盖。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.7'
+
+jobs:
+  build:
+    name: 构建 Web PWA
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 获取依赖
+        run: flutter pub get
+
+      - name: 构建 Web（同源 CanvasKit / 回落字体，零第三方 CDN）
+        run: >
+          flutter build web --release
+          --base-href /dorm-inspection/
+          --no-web-resources-cdn
+
+      - name: 补丁引导脚本（回落字体同源）
+        shell: pwsh
+        run: ./tool/patch_bootstrap.ps1
+
+      - name: 注入 Service Worker 全量预缓存清单
+        shell: pwsh
+        run: ./tool/inject_sw_manifest.ps1
+
+      - name: 添加 .nojekyll
+        run: touch build/web/.nojekyll
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 上传站点产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

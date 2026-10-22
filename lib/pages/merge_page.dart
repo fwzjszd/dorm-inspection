@@ -3,7 +3,7 @@
 // 自动识别类型，按导入顺序简单拼接为一条晚归汇总和 / 或一条卫生汇总，
 // 落库为新记录并可立即导出汇总文档。
 
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import 'package:flutter_miuix/miuix.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../services/file_io.dart';
 import '../services/merge_service.dart';
 import '../widgets/common.dart';
 
@@ -38,8 +39,8 @@ class _MergePageState extends State<MergePage> {
         !f.grades.containsAll(HygieneGrade.summaryDefaults);
   }
 
-  /// 已选文件路径去重，避免同一文件重复导入
-  final Set<String> _paths = <String>{};
+  /// 已选文件标识去重：原生端用文件路径，Web 端没有路径改用文件名+大小。
+  final Set<String> _fileKeys = <String>{};
 
   Future<void> _addFiles() async {
     final AppScope scope = AppScope.of(context);
@@ -58,15 +59,17 @@ class _MergePageState extends State<MergePage> {
     setState(() => _busy = true);
     int added = 0;
     for (final PlatformFile pf in picked) {
-      final String? path = pf.path;
-      if (path == null || !_paths.add(path)) continue;
+      // Web 端没有文件路径，用文件名+大小作为去重标识。
+      final int? size = pf.lengthSync();
+      final String key = pf.path ?? '${pf.name}:${size ?? ''}';
+      if (!_fileKeys.add(key)) continue;
       try {
-        final List<int> bytes = await File(path).readAsBytes();
-        final ImportedDoc doc = _service.parseBytes(bytes, pf.name, path: path);
+        final Uint8List bytes = await pf.readAsBytes();
+        final ImportedDoc doc = _service.parseBytes(bytes, pf.name, path: key);
         _docs.add(doc);
         added++;
       } catch (e) {
-        _paths.remove(path);
+        _fileKeys.remove(key);
         scope.snackbar.showSnackbar('无法识别「${pf.name}」：$e');
       }
     }
@@ -81,7 +84,7 @@ class _MergePageState extends State<MergePage> {
   void _removeDoc(int index) {
     setState(() {
       final ImportedDoc doc = _docs.removeAt(index);
-      if (doc.path.isNotEmpty) _paths.remove(doc.path);
+      if (doc.path.isNotEmpty) _fileKeys.remove(doc.path);
     });
   }
 
@@ -350,10 +353,9 @@ class _MergePageState extends State<MergePage> {
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
-                      final File file = await scope.excel.exportSessionWord(
-                        session,
-                      );
-                      await scope.excel.shareFile(file);
+                      final ExportedFile file =
+                          await scope.excel.exportSessionWord(session);
+                      await saveOrShareFile(file);
                     } catch (e) {
                       scope.snackbar.showSnackbar('导出失败：$e');
                     }
@@ -367,10 +369,9 @@ class _MergePageState extends State<MergePage> {
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
-                      final File file = await scope.excel.exportHygieneWord(
-                        hygiene,
-                      );
-                      await scope.excel.shareFile(file);
+                      final ExportedFile file =
+                          await scope.excel.exportHygieneWord(hygiene);
+                      await saveOrShareFile(file);
                     } catch (e) {
                       scope.snackbar.showSnackbar('导出失败：$e');
                     }
@@ -383,10 +384,9 @@ class _MergePageState extends State<MergePage> {
                   onTap: () async {
                     Navigator.pop(ctx);
                     try {
-                      final File file = await scope.excel.exportHygiene(
-                        hygiene,
-                      );
-                      await scope.excel.shareFile(file);
+                      final ExportedFile file =
+                          await scope.excel.exportHygiene(hygiene);
+                      await saveOrShareFile(file);
                     } catch (e) {
                       scope.snackbar.showSnackbar('导出失败：$e');
                     }

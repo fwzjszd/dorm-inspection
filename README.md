@@ -1,63 +1,67 @@
-# 查寝助手
+# 查寝助手 · 网页版（PWA）分支
 
-一款面向高校学生干部 / 辅导员的移动端查寝工具，使用 Flutter 开发，目前支持 Android。将「人员名单管理、晚归未归登记、卫生检查评分、Excel 导入导出」整合到一部手机里，查寝现场即可生成与学院模板格式一致的表格并分享，无需回到电脑前二次整理。
+> ⚠️ **本分支为实验性的网页版（Flutter Web / PWA）改造，尚未经过充分测试，不保证稳定性与功能完整性。**
+> 数据结构、导入导出兼容性、iOS Safari 上的实际表现等均可能存在问题，请自行承担使用风险。
+> 稳定的 Android 原生版本请见 `main` 分支。
 
-## 功能特性
+本分支把「查寝助手」改造为可安装的网页应用（PWA），主要目的是让 **iOS 用户无需 App Store / 无需开发者证书** 即可使用：用 iPhone 自带的 Safari 打开网页，「添加到主屏幕」后像普通 App 一样全屏运行。
 
-- **人员库管理**：从 Excel 一键导入名单，自动识别「姓名 / 学号 / 班级 / 宿舍 / 床号 / 辅导员」等常见表头（支持关键词模糊匹配与无表头默认列序）；也可在应用内手动增删改。
-- **晚归 / 未归查寝**：按批次登记异常学生（宿舍、床号、未归原因等），支持历史输入词自动补全，按学院下发模板导出 Excel 并直接分享。
-- **卫生检查评分**：以寝室为单位填写卫生检查表，导出时原样填充学院下发的 Word 评分表模板（`assets/hygiene_template.docx`），不破坏原有排版。
-- **本地存储、离线可用**：所有数据通过 `shared_preferences` 以 JSON 保存在本机，无需联网、无后端、不收集任何个人信息。
-- **深色液态玻璃界面**：基于 [flutter_miuix](https://pub.dev/packages/flutter_miuix) 与 `BackdropFilter` 实现的液态玻璃底栏（模糊导轨 + 清晰选中药丸、弹簧阻尼动效），全局锁定深色模式。
+- 在线 / 安装地址：<https://fwzjszd.github.io/dorm-inspection/>
+- 数据全部保存在**当前浏览器本地**（Flutter Web 的 shared_preferences 走浏览器本地存储），无后端、不上传、不收集任何信息。
+- 首次打开并加载完成后，Service Worker 会缓存全部资源，**此后断网也能打开**。
+- **零第三方 CDN**：CanvasKit 与中文回落字体均同源托管，加载与离线使用不依赖 Google 字体等外部服务（在网络受限环境下也能正常出界面）。
 
-## 技术栈
+## 在 iPhone / iPad 上安装使用
 
-| 项 | 说明 |
+1. 用系统自带的 **Safari** 打开 <https://fwzjszd.github.io/dorm-inspection/>（必须是 Safari，Chrome 等第三方浏览器不支持「添加到主屏幕」全屏安装）。
+2. 等待页面加载完毕（首次需下载约数 MB 资源）。
+3. 点底部工具栏的「分享」按钮（方框向上箭头）→ 选择「**添加到主屏幕**」→ 右上角「添加」。
+4. 回到桌面，点开名为「查寝助手」的图标，即可全屏使用；首次加载成功后支持离线打开。
+
+> 注意：网页版的数据只存在于**这一台设备的这一个浏览器**里，清除 Safari 数据或卸载图标会丢失数据，且不会与 Android 版自动同步。请及时使用「导出」功能备份。
+
+## 与 Android 版的差异
+
+| 方面 | 说明 |
 |---|---|
-| 框架 | Flutter / Dart 3 |
-| UI | Material + flutter_miuix，自绘液态玻璃底栏（`lib/pages/home_shell.dart`） |
-| 表格处理 | excel、archive（兼容 openpyxl / WPS 生成的 xlsx） |
-| 文件与分享 | file_picker、path_provider、share_plus |
-| 本地持久化 | shared_preferences（JSON 序列化，模型见 `lib/models.dart`） |
+| 文件导入 | 通过浏览器文件选择器选取 Excel / Word，不再访问设备文件目录。 |
+| 文件导出 | 浏览器环境下以下载 / 系统分享（Web Share，受 Safari 支持程度影响）方式保存文件。 |
+| 数据存储 | 保存在浏览器本地，与原生 App 存储相互独立。 |
+| 渲染 | 使用 Flutter Web 的 CanvasKit 渲染器，字体与 CanvasKit 已同源托管。 |
+| 打包分发 | 无需发包，推送 `web-pwa` 分支即由 GitHub Actions 自动构建并发布到 GitHub Pages。 |
 
-## 目录结构
+## 自动部署
 
-```
-lib/
-├── main.dart                     # 应用入口、主题与全局状态
-├── models.dart                   # 人员、查寝记录、查寝批次、卫生评分等数据模型
-├── pages/
-│   ├── home_shell.dart           # 主页骨架 + 液态玻璃底栏（PageView 滑动切换）
-│   ├── home_page.dart            # 查寝批次列表（晚归 / 卫生两类）
-│   ├── person_page.dart          # 人员库管理
-│   ├── session_edit_page.dart    # 晚归批次登记与导出
-│   ├── hygiene_edit_page.dart    # 卫生检查评分填写与导出
-│   └── settings_page.dart        # 设置（检查人员名单等）
-├── services/
-│   ├── excel_service.dart        # Excel 智能导入、模板导出
-│   └── storage_service.dart      # 本地数据持久化
-└── widgets/                      # Toast、自动补全输入框等通用组件
-assets/
-└── hygiene_template.docx         # 学院卫生检查评分表模板（导出时填充）
-```
+推送到 `web-pwa` 分支会触发 [.github/workflows/web-deploy.yml](.github/workflows/web-deploy.yml)：
 
-## 构建与运行
+1. `flutter build web --release --base-href /dorm-inspection/ --no-web-resources-cdn`（CanvasKit 同源）；
+2. `tool/patch_bootstrap.ps1`：把回落字体基址 `fontFallbackBaseUrl` 指向同源 `fonts/s/`；
+3. `tool/inject_sw_manifest.ps1`：枚举 `build/web` 全部产物注入 Service Worker 预缓存清单；
+4. 上传并部署到 GitHub Pages。
 
-前置条件：已安装 Flutter SDK（Dart SDK ^3.13.5）与 Android 工具链。
+> 仓库需先在 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**。
+
+## 本地构建与预览
+
+前置：Flutter 3.47.x（Dart 3.13）。
 
 ```bash
 flutter pub get
-flutter run                       # 连接设备或模拟器后运行
-flutter build apk --release       # 产出 build/app/outputs/flutter-apk/app-release.apk
-flutter analyze                   # 静态检查
+
+# 构建（Windows PowerShell）
+flutter build web --release --base-href /dorm-inspection/ --no-web-resources-cdn
+powershell -ExecutionPolicy Bypass -File tool/patch_bootstrap.ps1
+powershell -ExecutionPolicy Bypass -File tool/inject_sw_manifest.ps1
+
+# 本地静态预览（需带 /dorm-inspection/ 前缀，可用任意静态服务器指向 build/web）
 ```
 
 ## 数据与隐私
 
-- 应用完全离线运行，不包含任何网络请求与统计 SDK。
-- 人员名单、查寝记录仅保存在设备本地；卸载应用或清除数据即会删除。
-- 仓库 **不包含** 任何真实学生数据：根目录下的本地人员表（`*.xlsx`）与截图已通过 `.gitignore` 排除。
+- 网页版完全离线运行，除首次加载同源静态资源外不发起第三方网络请求。
+- 人员名单、查寝记录仅保存在当前浏览器本地；清除浏览器数据即会删除。
+- 仓库不包含任何真实学生数据。
 
 ## 开源协议
 
-本项目基于 [GNU General Public License v3.0](LICENSE) 开源，欢迎在遵守 GPLv3 条款的前提下自由使用、修改与分发。
+本项目基于 [GNU General Public License v3.0](LICENSE) 开源。

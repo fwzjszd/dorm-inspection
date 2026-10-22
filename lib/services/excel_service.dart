@@ -4,7 +4,6 @@
 // 3. 生成空白人员导入模板
 
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -13,11 +12,9 @@ import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models.dart';
+import 'file_io.dart';
 
 /// 人员字段 -> Excel 表头可能出现的关键词
 const Map<String, List<String>> _headerKeywords = <String, List<String>>{
@@ -112,10 +109,10 @@ class ExcelService {
       type: FileType.custom,
       allowedExtensions: <String>['xlsx'],
     );
-    if (result.isEmpty || result.single.path == null) return null;
-    final File file = File(result.single.path!);
+    if (result.isEmpty) return null;
+    final Uint8List bytes = await result.single.readAsBytes();
     // 解析放到后台 isolate，避免大文件解析时卡住界面
-    return compute(parsePersonsFromBytes, await file.readAsBytes());
+    return compute(parsePersonsFromBytes, bytes);
   }
 
   /// 对 xlsx 字节做兼容性清洗，解决 excel 4.0.6 解析 openpyxl / WPS
@@ -306,7 +303,7 @@ class ExcelService {
   /// 晚归批次导出为 .docx。
   /// 晚归没有学院下发的 Word 模板，这里按文本模板内容从零生成一个简洁的
   /// Word 文档：标题居中加粗，记录逐条排列，正文宋体/Times New Roman 小四。
-  Future<File> exportSessionWord(InspectionSession session) async {
+  Future<ExportedFile> exportSessionWord(InspectionSession session) async {
     String esc(String t) => t
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
@@ -396,12 +393,9 @@ class ExcelService {
     add('word/document.xml', document);
     final List<int> bytes = ZipEncoder().encode(archive)!;
 
-    final Directory outDir = await getTemporaryDirectory();
     final String fileName =
         '${session.displayTitle}_${DateTime.now().millisecondsSinceEpoch}.docx';
-    final File outFile = File(p.join(outDir.path, fileName));
-    await outFile.writeAsBytes(bytes, flush: true);
-    return outFile;
+    return ExportedFile(fileName, bytes);
   }
 
   // ========== 卫生检查评分表 ==========
@@ -472,7 +466,7 @@ class ExcelService {
   /// 按学院下发的 Word 模板导出卫生评分表为 .docx
   /// 做法：解压模板 -> 只替换 word/document.xml 中的副标题文字与表格单元格文字，
   /// 其余所有文件、样式、页面设置一字不动 -> 重新打包，保证格式与模板完全一致。
-  Future<File> exportHygieneWord(HygieneSession s) async {
+  Future<ExportedFile> exportHygieneWord(HygieneSession s) async {
     final ByteData tpl = await rootBundle.load('assets/hygiene_template.docx');
     final Archive archive = ZipDecoder().decodeBytes(
       tpl.buffer.asUint8List(tpl.offsetInBytes, tpl.lengthInBytes),
@@ -495,12 +489,9 @@ class ExcelService {
     }
     final List<int> bytes = ZipEncoder().encode(rebuilt)!;
 
-    final Directory outDir = await getTemporaryDirectory();
     final String fileName =
         '${s.displayTitle}_${DateTime.now().millisecondsSinceEpoch}.docx';
-    final File outFile = File(p.join(outDir.path, fileName));
-    await outFile.writeAsBytes(bytes, flush: true);
-    return outFile;
+    return ExportedFile(fileName, bytes);
   }
 
   /// 向 document.xml 填入副标题与表格数据，保留模板全部格式
@@ -709,7 +700,7 @@ class ExcelService {
       .replaceAll('>', '&gt;');
 
   /// 按 Word 模板导出卫生评分表为 .xlsx
-  Future<File> exportHygiene(HygieneSession s) async {
+  Future<ExportedFile> exportHygiene(HygieneSession s) async {
     final Excel excel = Excel.createExcel();
     final Sheet sheet = excel[excel.getDefaultSheet() ?? 'Sheet1'];
 
@@ -843,29 +834,16 @@ class ExcelService {
     // 表头行加高
     sheet.setRowHeight(2, 34);
 
-    final Directory outDir = await getTemporaryDirectory();
     final String fileName =
         '${s.displayTitle}_${DateTime.now().millisecondsSinceEpoch}.xlsx';
-    final File outFile = File(p.join(outDir.path, fileName));
-    await outFile.writeAsBytes(excel.encode()!, flush: true);
-    return outFile;
+    return ExportedFile(fileName, excel.encode()!);
   }
 
-  /// 调起分享面板
-  Future<void> shareFile(File file) async {
-    await SharePlus.instance.share(
-      ShareParams(files: <XFile>[XFile(file.path)]),
-    );
-  }
-
-  /// 将整库备份数据写成 .json 文件（内容由 StorageService.exportBackup 生成）
-  Future<File> exportBackupFile(Map<String, dynamic> data) async {
-    final Directory outDir = await getTemporaryDirectory();
+  /// 将整库备份数据打包为 .json 文件（内容由 StorageService.exportBackup 生成）
+  ExportedFile exportBackupFile(Map<String, dynamic> data) {
     final String fileName =
         '查寝助手备份_${DateTime.now().millisecondsSinceEpoch}.json';
-    final File outFile = File(p.join(outDir.path, fileName));
-    await outFile.writeAsString(jsonEncode(data), flush: true);
-    return outFile;
+    return ExportedFile(fileName, utf8.encode(jsonEncode(data)));
   }
 
   /// 选择并读取备份 .json 文件；用户取消或文件非法时返回 null。
@@ -874,9 +852,10 @@ class ExcelService {
       type: FileType.custom,
       allowedExtensions: <String>['json'],
     );
-    if (result.isEmpty || result.single.path == null) return null;
+    if (result.isEmpty) return null;
     try {
-      final String text = await File(result.single.path!).readAsString();
+      final Uint8List bytes = await result.single.readAsBytes();
+      final String text = utf8.decode(bytes);
       final dynamic decoded = jsonDecode(text);
       if (decoded is! Map) return null;
       return Map<String, dynamic>.from(decoded);
@@ -885,8 +864,8 @@ class ExcelService {
     }
   }
 
-  /// 生成空白人员导入模板并分享
-  Future<File> exportPersonTemplate() async {
+  /// 生成空白人员导入模板
+  Future<ExportedFile> exportPersonTemplate() async {
     final Excel excel = Excel.createExcel();
     final Sheet sheet = excel[excel.getDefaultSheet() ?? 'Sheet1'];
 
@@ -916,9 +895,6 @@ class ExcelService {
       );
     }
 
-    final Directory outDir = await getTemporaryDirectory();
-    final File outFile = File(p.join(outDir.path, '人员导入模板.xlsx'));
-    await outFile.writeAsBytes(excel.encode()!, flush: true);
-    return outFile;
+    return ExportedFile('人员导入模板.xlsx', excel.encode()!);
   }
 }

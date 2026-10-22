@@ -6,6 +6,7 @@ import 'package:flutter_miuix/miuix.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../services/file_io.dart';
 import '../widgets/common.dart';
 
 class PersonPage extends StatefulWidget {
@@ -56,7 +57,7 @@ class _PersonPageState extends State<PersonPage> {
     final AppScope scope = AppScope.of(context);
     try {
       final file = await scope.excel.exportPersonTemplate();
-      await scope.excel.shareFile(file);
+      await saveOrShareFile(file);
     } catch (e) {
       scope.snackbar.showSnackbar('模板生成失败：$e');
     }

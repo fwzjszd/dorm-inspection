@@ -7,13 +7,12 @@
 // 宿舍号只需填写房号（如 101），保存时与楼栋（如 23#）自动合成为完整寝室号（23#101）。
 // 可按人员库中所选楼栋的宿舍名单一键自动成行。
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_miuix/miuix.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../services/file_io.dart';
 import '../widgets/autocomplete_field.dart';
 import '../widgets/common.dart';
 
@@ -319,8 +318,9 @@ class _HygieneEditPageState extends State<HygieneEditPage> {
     final HygieneSession session = _buildSession();
     scope.storage.upsertHygiene(session);
     try {
-      final File file = await scope.excel.exportHygieneWord(session);
-      await scope.excel.shareFile(file);
+      final ExportedFile file =
+          await scope.excel.exportHygieneWord(session);
+      await saveOrShareFile(file);
       scope.snackbar.showSnackbar('已保存并导出 Word 文档');
     } catch (e) {
       scope.snackbar.showSnackbar('导出失败：$e');
