@@ -242,24 +242,10 @@ class _HygieneEditPageState extends State<HygieneEditPage> {
     }
     final double? bonus = double.tryParse(e.bonus.text.trim());
     if (bonus != null && bonus != 0) hasAnyScore = true;
-    // 无人宿舍：只填寝室号并备注无人，不参与分数校验
-    if (e.lockedUnoccupied) return null;
     if (dorm.isEmpty && hasAnyScore) {
       return _SaveError(index, e.id, dorm, '未填写寝室号');
     }
-    // 不合格分数：手选不合格，或按总分自动判定为不合格
-    if (dorm.isNotEmpty && hasAnyScore) {
-      double total = bonus ?? 0;
-      for (final HygieneItem item in kHygieneItems) {
-        total += double.tryParse(e.score(item.key).text.trim()) ?? 0;
-      }
-      final String grade = e.grade.isEmpty
-          ? HygieneGrade.suggest(total)
-          : e.grade;
-      if (grade == HygieneGrade.fail) {
-        return _SaveError(index, e.id, dorm, '总分为 ${fmtScore(total)}，评定为不合格');
-      }
-    }
+    // 总分判定等级（含不合格、优秀）与总分超 100（奖励分累加）均不限制保存。
     return null;
   }
 
@@ -606,7 +592,7 @@ class _DormCardState extends State<_DormCard> {
   }
 
   /// 切换「无人宿舍」开关：
-  /// 打开 → 清空 8 个分项得分与奖励分，备注自动填「无人宿舍」，全卡输入框置灰；
+  /// 打开 → 清空 8 个分项得分与奖励分，备注自动填「无人宿舍」，除寝室号外全卡输入框置灰；
   /// 关闭 → 移除自动填入的备注，恢复编辑。
   void _toggleUnoccupied(bool value) {
     final _HygieneEntry e = widget.entry;
@@ -697,7 +683,7 @@ class _DormCardState extends State<_DormCard> {
                       ),
                     ),
                   ),
-                  // 无人宿舍开关：打开后全卡输入框置灰，备注自动填「无人宿舍」
+                  // 无人宿舍开关：打开后除寝室号外全卡输入框置灰，备注自动填「无人宿舍」
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: () => _toggleUnoccupied(!unoccupied),
@@ -773,7 +759,6 @@ class _DormCardState extends State<_DormCard> {
                     label: '寝室号（只填房号，不含楼栋），如 101',
                     suggestions: widget.dormSuggestions,
                     singleLine: true,
-                    enabled: !unoccupied,
                     insideMargin: _kFieldMargin,
                   ),
                   // 固定高度槽位：实时提示将填入第一列的完整寝室号，
@@ -1156,7 +1141,7 @@ class _HygieneEntry {
   /// 手选等级，空表示按总分自动判定
   String grade;
 
-  /// 「无人宿舍」开关是否打开：打开时全卡输入框置灰、备注为「无人宿舍」
+  /// 「无人宿舍」开关是否打开：打开时除寝室号外全卡输入框置灰、备注为「无人宿舍」
   bool lockedUnoccupied;
 
   TextEditingController score(String key) => scoreCtrls[key]!;
