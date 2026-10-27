@@ -197,10 +197,11 @@ class HygieneGrade {
     unoccupied,
   };
 
-  /// 按总分给出建议等级（阈值据填写示例：74/79/84/89 均为良好）
+  /// 按总分给出建议等级（阈值据《闽南理工学院学生公寓内务卫生检查标准》：
+  /// 优秀≥85；75≤良好＜85；60≤合格＜75；不合格＜60）
   static String suggest(double score) {
-    if (score >= 90) return excellent;
-    if (score >= 70) return good;
+    if (score >= 85) return excellent;
+    if (score >= 75) return good;
     if (score >= 60) return pass;
     return fail;
   }
